@@ -22,8 +22,7 @@ def generate_tone(frequency: int, duration: float, volume: float = 1, sample_rat
         return volume * math.sin(2 * math.pi * frequency * sample / sample_rate)
 
     samples = (int(process(t) * 0x7f + 0x80) for t in range(n_samples))
-    for buf in zip(*[samples] * sample_rate):
-        stream.write(bytes(bytearray(buf)))
+    stream.write(bytes(bytearray(samples)))
 
     stream.write(b"\x80" * restframes)
     stream.stop_stream()

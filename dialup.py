@@ -22,7 +22,8 @@ def group_dialup() -> None:
     pass
 
 @group_dialup.command("calibrate")
-def command_calibrate() -> None:
+@click.option("--fast", "-f", is_flag = True, help = "Enable faster transmission, at the cost of accuracy.")
+def command_calibrate(fast: bool) -> None:
     """Calibrate the connection between two devices."""
     match input("Calibrate the connection on the (1) send side, or (2) the receive side?\n> "):
         case "1":
@@ -33,16 +34,21 @@ def command_calibrate() -> None:
             print()
             for tone, value in AVAILABLE_TONES.items():
                 print(f"{tone}Hz\t| Mapped value: {value}\t| Sending...", end = "", flush = True)
-                generate_tone(tone, 1, .2)
+                generate_tone(tone, 2, 1)
                 print(f"\033[2K\r{tone}Hz\t| Mapped value: {value}\t| Sent!")
 
         case "2":
             calibrated_tones = {}
             for tone, value in AVAILABLE_TONES.items():
                 print(f"{tone}Hz\t| Normal: N/A\t\t| Mapped value: {value}\t| Calibrating...", end = "", flush = True)
-                calibrated_value = listen_for_frequency()
-                if calibrated_value is None:
-                    exit("Failed calibration!")
+
+                while True:
+                    calibrated_value = listen_for_frequency(fast)
+                    if calibrated_value is None:
+                        exit("Failed calibration!")
+
+                    if calibrated_value not in calibrated_tones and calibrated_value:
+                        break
 
                 print(f"\033[2K\r{tone}Hz\t| Normal: {calibrated_value}Hz \t| Mapped value: {value}\t| Calibrated!")
                 calibrated_tones[calibrated_value] = tone
@@ -52,7 +58,8 @@ def command_calibrate() -> None:
 
 @group_dialup.command("receive")
 @click.argument("file", type = Path)
-def command_receive(file: Path) -> None:
+@click.option("--fast", "-f", is_flag = True, help = "Enable faster transmission, at the cost of accuracy. Must be enabled on both sides.")
+def command_receive(file: Path, fast: bool) -> None:
     """Receive a file from a remote system."""
     calibration_data = {int(k): v for k, v in json.loads(Path("calibration.json").read_text()).items()}
 
@@ -60,7 +67,7 @@ def command_receive(file: Path) -> None:
 
     total_value = ""
     while True:
-        received_value = listen_for_frequency()
+        received_value = listen_for_frequency(fast)
         if received_value is None:
             break
 
@@ -83,8 +90,9 @@ def command_receive(file: Path) -> None:
     print(len(total_value), "bytes written to", file.name)
 
 @group_dialup.command("send")
+@click.option("--fast", "-f", is_flag = True, help = "Enable faster transmission, at the cost of accuracy. Must be enabled on both sides.")
 @click.argument("file", type = Path)
-def command_send(file: Path) -> None:
+def command_send(file: Path, fast: bool) -> None:
     """Send a file to a remote system."""
 
     reversed_tone_map = {v: k for k, v in AVAILABLE_TONES.items()}
@@ -92,17 +100,24 @@ def command_send(file: Path) -> None:
         print(f"[Send | {index}] {tone_code}")
         generate_tone(
             reversed_tone_map[tone_code],
-            1,
+            .3 if fast else 1,
             1.0
         )
 
     file_data = file.read_bytes()
     compressed = brotli.compress(file_data)
-    print(f"Raw file size: {len(file_data)} bytes | Compressed: {len(compressed)} bytes")
-    file_data = compressed.hex().upper()
+    hex_data = compressed.hex().upper()
+
+    print(f"\nFile size: {len(file_data)} bytes | Compressed: {len(compressed)} bytes | Hex: {len(hex_data)} chars")
+
+    import math
+    eta = len(hex_data) * (0.611 if fast else 1.071)  # Measured via tone length irl
+    minutes = math.floor(eta / 60)
+    eta -= (60 * minutes)
+    print(f"Send ETA: {minutes} minute(s), {round(eta, 2)} second(s)\n")
 
     send_tone(0, "START")
-    for index, byte in enumerate(file_data):
+    for index, byte in enumerate(hex_data):
         send_tone(index + 1, byte)
 
     send_tone(len(file_data) + 1, "STOP")
