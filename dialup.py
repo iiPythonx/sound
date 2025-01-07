@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import click
+import brotli
 
 from lib import AVAILABLE_TONES
 from lib.sine import generate_tone
@@ -38,7 +39,7 @@ def command_calibrate() -> None:
         case "2":
             calibrated_tones = {}
             for tone, value in AVAILABLE_TONES.items():
-                print(f"{tone}Hz\t| Normal: N/A \t| Mapped value: {value}\t| Calibrating...", end = "", flush = True)
+                print(f"{tone}Hz\t| Normal: N/A\t\t| Mapped value: {value}\t| Calibrating...", end = "", flush = True)
                 calibrated_value = listen_for_frequency()
                 if calibrated_value is None:
                     exit("Failed calibration!")
@@ -50,7 +51,8 @@ def command_calibrate() -> None:
             print("Calibration complete!")
 
 @group_dialup.command("receive")
-def command_receive() -> None:
+@click.argument("file", type = Path)
+def command_receive(file: Path) -> None:
     """Receive a file from a remote system."""
     calibration_data = {int(k): v for k, v in json.loads(Path("calibration.json").read_text()).items()}
 
@@ -77,8 +79,8 @@ def command_receive() -> None:
 
         total_value += hex_value
 
-    print(total_value)
-    print("DECODED MESSAGE", bytes.fromhex(total_value).decode())
+    file.write_bytes(brotli.decompress(bytes.fromhex(total_value)))
+    print(len(total_value), "bytes written to", file.name)
 
 @group_dialup.command("send")
 @click.argument("file", type = Path)
@@ -94,8 +96,10 @@ def command_send(file: Path) -> None:
             1.0
         )
 
-    file_data = file.read_bytes().hex().upper()
-    print(file_data)
+    file_data = file.read_bytes()
+    compressed = brotli.compress(file_data)
+    print(f"Raw file size: {len(file_data)} bytes | Compressed: {len(compressed)} bytes")
+    file_data = compressed.hex().upper()
 
     send_tone(0, "START")
     for index, byte in enumerate(file_data):

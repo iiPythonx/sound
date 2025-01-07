@@ -1,9 +1,9 @@
-import numpy as np
 import pyaudio
+import numpy as np
 
 from . import audio
 
-def listen_for_frequency() -> int | None:
+def listen_for_frequency() -> int:
     stream = audio.open(
         format = pyaudio.paInt16,
         channels = 1,
@@ -15,6 +15,7 @@ def listen_for_frequency() -> int | None:
     def close() -> None:
         stream.stop_stream()
         stream.close()
+
     last_freq, recent_freqs = None, 0
     try:
         while True:
@@ -23,22 +24,17 @@ def listen_for_frequency() -> int | None:
             fft_data = np.fft.fft(audio_data)
             fft_freq = np.fft.fftfreq(len(fft_data), 1 / 44100)
             magnitude = np.abs(fft_data)
-            peak_freq = abs(fft_freq[np.argmax(magnitude)])
-
-            peak_freq = round(peak_freq)
+            peak_freq = round(abs(fft_freq[np.argmax(magnitude)]))
 
             # Handle multiple detection
             if last_freq == peak_freq:
                 recent_freqs += 1
                 if recent_freqs == 30:
                     close()
-                    return last_freq
+                    return peak_freq
 
             else:
                 last_freq, recent_freqs = peak_freq, 0
 
     except KeyboardInterrupt:
         exit()
-
-    close()
-    return None
