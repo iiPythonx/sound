@@ -1,6 +1,7 @@
 # Copyright (c) 2025 iiPython
 
 # Modules
+import math
 import time
 import json
 from pathlib import Path
@@ -95,22 +96,26 @@ def command_receive(file: Path, fast: bool) -> None:
 def command_send(file: Path, fast: bool) -> None:
     """Send a file to a remote system."""
 
-    reversed_tone_map = {v: k for k, v in AVAILABLE_TONES.items()}
-    def send_tone(index: int, tone_code: str) -> None:
-        print(f"[Send | {index}] {tone_code}")
-        generate_tone(
-            reversed_tone_map[tone_code],
-            .3 if fast else 1,
-            1.0
-        )
-
     file_data = file.read_bytes()
     compressed = brotli.compress(file_data)
     hex_data = compressed.hex().upper()
 
     print(f"\nFile size: {len(file_data)} bytes | Compressed: {len(compressed)} bytes | Hex: {len(hex_data)} chars")
 
-    import math
+    reversed_tone_map = {v: k for k, v in AVAILABLE_TONES.items()}
+    def send_tone(index: int, tone_code: str) -> None:
+        percent = index / len(hex_data)
+        print(
+            f"\033[2K{str(index + 1).zfill(4)}/{str(len(hex_data)).zfill(4)} {tone_code}\t[{'#' * round(32 * percent)}{' ' * (32 - round(32 * percent))}]\r",
+            end = "",
+            flush = True
+        )
+        generate_tone(
+            reversed_tone_map[tone_code],
+            .3 if fast else 1,
+            1.0
+        )
+
     eta = len(hex_data) * (0.611 if fast else 1.071)  # Measured via tone length irl
     minutes = math.floor(eta / 60)
     eta -= (60 * minutes)
