@@ -1,7 +1,7 @@
 [project]
 name = "fake-dialup"
 version = "0.1.0"
-description = "I'm not even sure anymore."
+description = "Send files with sound or die trying."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

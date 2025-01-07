@@ -1,6 +1,6 @@
 # iiPythonx/sound
 
-Send files using sound, or fail.
+Send files with sound or die trying.
 
 ### Installation
 
