@@ -1,59 +1,107 @@
-import numpy as np
-import pyaudio
+# Copyright (c) 2025 iiPython
 
-def listen_for_frequency(frequency: int) -> int | None:
-    p = pyaudio.PyAudio()
-    stream = p.open(
-        format = pyaudio.paInt16,
-        channels = 1,
-        rate = 44100,
-        input = True,
-        frames_per_buffer = 1024
-    )
+# Modules
+import time
+import json
+from pathlib import Path
 
-    def close() -> None:
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+import click
 
-    last_freq, recent_freqs = None, 0
-    try:
-        while True:
-            data = stream.read(1024, exception_on_overflow = False)
-            audio_data = np.frombuffer(data, dtype = np.int16)
-            fft_data = np.fft.fft(audio_data)
-            fft_freq = np.fft.fftfreq(len(fft_data), 1 / 44100)
-            magnitude = np.abs(fft_data)
-            peak_freq = abs(fft_freq[np.argmax(magnitude)])
+from lib import AVAILABLE_TONES
+from lib.sine import generate_tone
+from lib.microphone import listen_for_frequency
 
-            peak_freq = round(peak_freq)
+# Initialization
 
-            # Handle multiple detection
-            if last_freq == peak_freq:
-            # if abs(peak_freq - frequency) < 5:
-                recent_freqs += 1
-                if recent_freqs == 30:
-                    close()
-                    return last_freq
+# Commands
+@click.group()
+def group_dialup() -> None:
+    """Tool to send files and other data through sound waves.
+    Copyright (c) 2025 iiPython"""
+    pass
 
-            else:
-                print(peak_freq)
-                last_freq, recent_freqs = peak_freq, 0
-                # recent_freqs = 0
-            # if abs(peak_freq - frequency) < 5:
-            #     print(f"Detected target frequency: {peak_freq:.2f} Hz")
-            #     exit()
+@group_dialup.command("calibrate")
+def command_calibrate() -> None:
+    """Calibrate the connection between two devices."""
+    match input("Calibrate the connection on the (1) send side, or (2) the receive side?\n> "):
+        case "1":
+            for elapsed in range(5):
+                print(f"Calibration begins in {5 - elapsed}...\r", end = "", flush = True)
+                time.sleep(1)
 
-            # else:
-            #     print(f"Peak frequency: {peak_freq:.2f} Hz")
+            print()
+            for tone, value in AVAILABLE_TONES.items():
+                print(f"{tone}Hz\t| Mapped value: {value}\t| Sending...", end = "", flush = True)
+                generate_tone(tone, 1, .2)
+                print(f"\033[2K\r{tone}Hz\t| Mapped value: {value}\t| Sent!")
 
-    except KeyboardInterrupt:
-        print("Stopping...")
+        case "2":
+            calibrated_tones = {}
+            for tone, value in AVAILABLE_TONES.items():
+                print(f"{tone}Hz\t| Normal: N/A \t| Mapped value: {value}\t| Calibrating...", end = "", flush = True)
+                calibrated_value = listen_for_frequency()
+                if calibrated_value is None:
+                    exit("Failed calibration!")
 
-    finally:
-        close()
+                print(f"\033[2K\r{tone}Hz\t| Normal: {calibrated_value}Hz \t| Mapped value: {value}\t| Calibrated!")
+                calibrated_tones[calibrated_value] = tone
 
-    return None
+            Path("calibration.json").write_text(json.dumps(calibrated_tones, indent = 4))
+            print("Calibration complete!")
+
+@group_dialup.command("receive")
+def command_receive() -> None:
+    """Receive a file from a remote system."""
+    calibration_data = {int(k): v for k, v in json.loads(Path("calibration.json").read_text()).items()}
+
+    print("Now receiving a file...")
+
+    total_value = ""
+    while True:
+        received_value = listen_for_frequency()
+        if received_value is None:
+            break
+
+        actual_value = calibration_data.get(received_value)
+        if actual_value is None:
+            print("Received an unknown frequency! Recalibrating is recommended!")
+            exit()
+
+        hex_value = AVAILABLE_TONES[actual_value]
+        print(f"[Recv] {hex_value}")
+        if hex_value == "START":
+            continue
+
+        if hex_value == "STOP":
+            break
+
+        total_value += hex_value
+
+    print(total_value)
+    print("DECODED MESSAGE", bytes.fromhex(total_value).decode())
+
+@group_dialup.command("send")
+@click.argument("file", type = Path)
+def command_send(file: Path) -> None:
+    """Send a file to a remote system."""
+
+    reversed_tone_map = {v: k for k, v in AVAILABLE_TONES.items()}
+    def send_tone(index: int, tone_code: str) -> None:
+        print(f"[Send | {index}] {tone_code}")
+        generate_tone(
+            reversed_tone_map[tone_code],
+            1,
+            1.0
+        )
+
+    file_data = file.read_bytes().hex().upper()
+    print(file_data)
+
+    send_tone(0, "START")
+    for index, byte in enumerate(file_data):
+        send_tone(index + 1, byte)
+
+    send_tone(len(file_data) + 1, "STOP")
 
 if __name__ == "__main__":
-    print(listen_for_frequency(1300))
+    group_dialup()
